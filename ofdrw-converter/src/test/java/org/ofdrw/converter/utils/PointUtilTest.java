@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.ofdrw.converter.utils.CommonUtil.converterDpi;
 
@@ -99,5 +100,27 @@ class PointUtilTest {
                 PointUtil.calPdfPathLineWidth(1.35467d, 1d, true, ctm), 0.00001d);
         assertEquals(1.35467d * 72d / 25.4d * 0.010948d,
                 PointUtil.calPdfPathLineWidth(1.35467d, 1d, false, ctm), 0.00001d);
+    }
+
+    @Test
+    void combineBoundaryShouldIncludeNestedClipPathOffset() {
+        ST_Box objectBoundary = new ST_Box(89.5, 3.5, 31, 21);
+        ST_Box clipPathBoundary = new ST_Box(0.5, 0.5, 30, 20);
+
+        ST_Box actual = PointUtil.combineBoundary(objectBoundary, clipPathBoundary);
+
+        assertEquals(90, actual.getTopLeftX());
+        assertEquals(4, actual.getTopLeftY());
+        assertEquals(30, actual.getWidth());
+        assertEquals(20, actual.getHeight());
+        assertEquals(89.5, objectBoundary.getTopLeftX());
+        assertEquals(3.5, objectBoundary.getTopLeftY());
+    }
+
+    @Test
+    void combineBoundaryShouldKeepParentWhenNestedBoundaryIsMissing() {
+        ST_Box objectBoundary = new ST_Box(10, 20, 30, 40);
+
+        assertSame(objectBoundary, PointUtil.combineBoundary(objectBoundary, null));
     }
 }
