@@ -6,6 +6,8 @@ import org.ofdrw.core.basicStructure.pageObj.layer.PageBlockType;
 import org.ofdrw.core.basicStructure.pageObj.layer.block.CT_PageBlock;
 import org.ofdrw.core.basicStructure.pageObj.layer.block.TextObject;
 import org.ofdrw.core.text.TextCode;
+import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.reader.extractor.ExtractorFilter;
 
 import java.util.Collections;
@@ -120,15 +122,18 @@ public class ContentExtractor {
             // 找出所有的文字对象
             if (block instanceof TextObject) {
                 TextObject text = (TextObject) block;
+                CT_Font font = text.getFont() == null
+                        ? null
+                        : reader.getResMgt().getFont(text.getFont().toString());
                 List<TextCode> textCodes = text.getTextCodes();
                 for (TextCode code : textCodes) {
                     if (filter != null) {
                         String allowText = filter.getAllowText(text, code);
                         if(allowText != null && !"".equals(allowText.trim())) {
-                            txtContentList.add(allowText);
+                            txtContentList.add(SymbolPuaMapper.toUnicode(font, allowText));
                         }
                     } else {
-                        txtContentList.add(code.getContent());
+                        txtContentList.add(SymbolPuaMapper.toUnicode(font, code.getContent()));
                     }
                 }
             } else if (block instanceof CT_PageBlock) {

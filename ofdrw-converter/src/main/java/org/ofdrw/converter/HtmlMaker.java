@@ -11,6 +11,8 @@ import org.ofdrw.core.basicStructure.pageObj.layer.PageBlockType;
 import org.ofdrw.core.basicStructure.pageObj.layer.block.TextObject;
 import org.ofdrw.core.basicType.ST_Box;
 import org.ofdrw.core.text.TextCode;
+import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.core.text.text.Weight;
 import org.ofdrw.reader.OFDReader;
 import org.ofdrw.reader.PageInfo;
@@ -475,6 +477,9 @@ public class HtmlMaker {
         List<TextCode> textCodes = textObject.getTextCodes();
 
         List<TextCodePoint> textCodePointList = calTextPoint(textCodes.get(0));
+        CT_Font ctFont = textObject.getFont() == null
+                ? null
+                : ofdReader.getResMgt().getFont(textObject.getFont().toString());
 
         for (TextCodePoint textCodePoint : textCodePointList) {
 
@@ -486,7 +491,7 @@ public class HtmlMaker {
             text.setTagName("text");
             text.setX((textCodePoint.getX()));
             text.setY((textCodePoint.getY()));
-            text.setInnerHTML(textCodePoint.getText());
+            text.setInnerHTML(SymbolPuaMapper.toUnicode(ctFont, textCodePoint.getText()));
 
             if (ctm != null) {
                 if (ctm[0].equals(ctm[3])) {

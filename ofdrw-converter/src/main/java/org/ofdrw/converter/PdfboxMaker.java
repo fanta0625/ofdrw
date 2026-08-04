@@ -57,6 +57,7 @@ import org.ofdrw.core.pageDescription.color.color.ColorClusterType;
 import org.ofdrw.core.pageDescription.drawParam.CT_DrawParam;
 import org.ofdrw.core.signatures.appearance.StampAnnot;
 import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.reader.OFDReader;
 import org.ofdrw.reader.PageInfo;
 import org.ofdrw.reader.ResourceLocator;
@@ -849,6 +850,8 @@ public class PdfboxMaker {
 
         List<TextCodePoint> textCodePointList = PointUtil.calPdfTextCoordinate(box.getWidth(), box.getHeight(), textObject.getBoundary(), fontSize, textObject.getTextCodes(), textObject.getCTM() != null, textObject.getCTM(), true, scale);
         for (TextCodePoint textCodePoint : textCodePointList) {
+            textCodePoint.setText(SymbolPuaMapper.forRendering(
+                    ctFont, textCodePoint.getText(), codePoint -> containsGlyph(font, codePoint)));
             contentStream.saveGraphicsState();
             contentStream.beginText();
             contentStream.setNonStrokingColor(fillColor);
@@ -863,6 +866,14 @@ public class PdfboxMaker {
             contentStream.restoreGraphicsState();
         }
 
+    }
+
+    private static boolean containsGlyph(PDFont font, int codePoint) {
+        try {
+            return font.encode(new String(Character.toChars(codePoint))).length > 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static Matrix textMatrix(TextObject textObject, TextCodePoint textCodePoint) {
