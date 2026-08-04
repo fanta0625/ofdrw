@@ -24,6 +24,7 @@ import com.itextpdf.kernel.pdf.xobject.PdfFormXObject;
 import com.itextpdf.layout.Canvas;
 import org.dom4j.Element;
 import org.ofdrw.converter.font.FontWrapper;
+import org.ofdrw.converter.font.GlyphFallbackResolver;
 import org.ofdrw.converter.point.PathPoint;
 import org.ofdrw.converter.point.TextCodePoint;
 import org.ofdrw.converter.utils.CommonUtil;
@@ -89,6 +90,8 @@ public class ItextMaker {
     private static final double TEXT_CLIP_MARGIN = 1d;
 
     private Map<String, FontWrapper<PdfFont>> fontCache = new HashMap<>();
+
+    private GlyphFallbackResolver<PdfFont> glyphFallbackResolver;
 
     private final OFDReader ofdReader;
     /**
@@ -953,7 +956,12 @@ public class ItextMaker {
                 transform.setTransform(textObject.getHScale().floatValue(), 0, 0, 1, (1 - textObject.getHScale().floatValue()) * textCodePoint.getX(), 0);
                 pdfCanvas.concatMatrix(transform);
             }
-            pdfCanvas.setFontAndSize(font, (float) converterDpi(fontSize));
+            boolean useGlyphIndexes = !StringUtils.isBlank(textCodePoint.getGlyph())
+                    && !pdfFontWrapper.isEnableSimilarFontReplace();
+            PdfFont renderingFont = useGlyphIndexes
+                    ? font
+                    : getGlyphFallbackResolver().resolve(textCodePoint.getText(), font);
+            pdfCanvas.setFontAndSize(renderingFont, (float) converterDpi(fontSize));
 
             // 设置线宽
             if (textObject.getLineWidth() != null) {
@@ -1003,7 +1011,7 @@ public class ItextMaker {
             }
 
 
-            if (!StringUtils.isBlank(textCodePoint.getGlyph()) && !pdfFontWrapper.isEnableSimilarFontReplace()) {
+            if (useGlyphIndexes) {
                 List<Glyph> glyphs = new ArrayList<>();
                 String[] glys = textCodePoint.getGlyph().split(" ");
                 for (String gly : glys) {
@@ -1051,5 +1059,19 @@ public class ItextMaker {
         FontWrapper<PdfFont> font = FontLoader.getInstance().loadPDFFontSimilar(rl, ctFont, isNoGlyphs);
         fontCache.put(key, font);
         return font;
+    }
+
+    private GlyphFallbackResolver<PdfFont> getGlyphFallbackResolver() {
+        if (glyphFallbackResolver == null) {
+            ResourceLocator locator = ofdReader.getResourceLocator();
+            glyphFallbackResolver = new GlyphFallbackResolver<>(
+                    resMgt.getFonts(),
+                    font -> getFont(locator, font, true).getFont(),
+                    (font, codePoint) -> {
+                        Glyph glyph = font.getGlyph(codePoint);
+                        return glyph != null && glyph.getCode() != 0;
+                    });
+        }
+        return glyphFallbackResolver;
     }
 }

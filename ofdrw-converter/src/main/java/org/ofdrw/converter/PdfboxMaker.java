@@ -28,6 +28,7 @@ import org.apache.pdfbox.pdmodel.graphics.shading.PDShadingType3;
 import org.apache.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState;
 import org.apache.pdfbox.util.Matrix;
 import org.dom4j.Element;
+import org.ofdrw.converter.font.GlyphFallbackResolver;
 import org.ofdrw.converter.point.PathPoint;
 import org.ofdrw.converter.point.TextCodePoint;
 import org.ofdrw.converter.utils.CommonUtil;
@@ -113,6 +114,8 @@ public class PdfboxMaker {
      * KEY: 自族名_字体名_字体路径
      */
     private Map<String, PDFont> fontCache = new HashMap<>();
+
+    private GlyphFallbackResolver<PDFont> glyphFallbackResolver;
 
     /**
      * 默认字体，当无法获取字体时使用
@@ -849,11 +852,13 @@ public class PdfboxMaker {
 
         List<TextCodePoint> textCodePointList = PointUtil.calPdfTextCoordinate(box.getWidth(), box.getHeight(), textObject.getBoundary(), fontSize, textObject.getTextCodes(), textObject.getCTM() != null, textObject.getCTM(), true, scale);
         for (TextCodePoint textCodePoint : textCodePointList) {
+            PDFont renderingFont = getGlyphFallbackResolver()
+                    .resolve(textCodePoint.getText(), font);
             contentStream.saveGraphicsState();
             contentStream.beginText();
             contentStream.setNonStrokingColor(fillColor);
             contentStream.setTextMatrix(textMatrix(textObject, textCodePoint));
-            contentStream.setFont(font, (float) converterDpi(fontSize));
+            contentStream.setFont(renderingFont, (float) converterDpi(fontSize));
             try {
                 contentStream.showText(textCodePoint.getText());
             } catch (Exception e) {
@@ -1097,5 +1102,16 @@ public class PdfboxMaker {
      */
     public PDFont getDefaultFont() {
         return defaultFont;
+    }
+
+    private GlyphFallbackResolver<PDFont> getGlyphFallbackResolver() {
+        if (glyphFallbackResolver == null) {
+            glyphFallbackResolver = new GlyphFallbackResolver<>(
+                    resMgt.getFonts(),
+                    this::getFont,
+                    (font, codePoint) -> font.encode(
+                            new String(Character.toChars(codePoint))).length > 0);
+        }
+        return glyphFallbackResolver;
     }
 }

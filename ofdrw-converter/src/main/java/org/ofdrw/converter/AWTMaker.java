@@ -5,6 +5,7 @@ import org.apache.pdfbox.pdmodel.graphics.blend.BlendComposite;
 import org.apache.pdfbox.pdmodel.graphics.blend.BlendMode;
 import org.ofdrw.converter.font.FontWrapper;
 import org.ofdrw.converter.font.GlyphData;
+import org.ofdrw.converter.font.GlyphFallbackResolver;
 import org.ofdrw.converter.font.TrueTypeFont;
 import org.ofdrw.converter.point.Tuple2;
 import org.ofdrw.converter.utils.CommonUtil;
@@ -92,6 +93,8 @@ public abstract class AWTMaker {
      * KEY: 字族名_字体名_字体路径
      */
     private final Map<String, FontWrapper<TrueTypeFont>> fontCache = new HashMap<>();
+
+    private GlyphFallbackResolver<TrueTypeFont> glyphFallbackResolver;
 
     /**
      * 创建图片转换对象实例
@@ -506,22 +509,28 @@ public abstract class AWTMaker {
             int offset = 0;
             // 待绘制的字形数据序列
             List<GeneralPath> tbDrawChars = new ArrayList<>(5);
+            List<List<Number>> tbFontMatrices = new ArrayList<>(5);
             while (offset < len) {
                 CT_CGTransform tsfInfo = tsfMap.get(globalOffset);
                 // 不存在字形变换，使用字体cmap查找字形
                 if (tsfInfo == null) {
                     char c = content.charAt(offset);
                     try {
+                        TrueTypeFont glyphFont = getGlyphFallbackResolver()
+                                .resolve(String.valueOf(c), typeFont);
                         // 通过字符编码获取字形
-                        GlyphData glyphData = typeFont.getUnicodeGlyph(c);
+                        GlyphData glyphData = glyphFont.getUnicodeGlyph(c);
+                        List<Number> glyphFontMatrix = glyphFont.getFontMatrix();
                         if (glyphData != null) {
                             tbDrawChars.add(glyphData.getPath());
                         }else{
                             // 找不到字形
                             tbDrawChars.add(null);
                         }
+                        tbFontMatrices.add(glyphFontMatrix);
                     } catch (Exception e) {
                         tbDrawChars.add(null);
+                        tbFontMatrices.add(fontMatrix);
                         logger.debug(String.format("找不到字形 unicode: %c", c));
                     }
                     globalOffset++;
@@ -546,8 +555,10 @@ public abstract class AWTMaker {
                             // 通过字形索引到字体中找到字形数据
                             GeneralPath drawPath = typeFont.getPath(gid);
                             tbDrawChars.add(drawPath);
+                            tbFontMatrices.add(fontMatrix);
                         } catch (IOException e) {
                             tbDrawChars.add(null);
+                            tbFontMatrices.add(fontMatrix);
                             logger.debug(String.format("找不到字形 gid: %s", gid));
                         }
                     }
@@ -608,7 +619,8 @@ public abstract class AWTMaker {
                     continue;
                 }
                 // 结合变换矩阵绘制字形
-                Matrix matrix = chatMatrix(textObject, x, y, fontSize, fontMatrix, baseMatrix);
+                Matrix matrix = chatMatrix(textObject, x, y, fontSize,
+                        tbFontMatrices.get(drawOffset), baseMatrix);
                 renderChar(graphics, shape, matrix, strokeColor, fillColor, alpha);
             }
             // 更新上一个TextCode的X和Y，用于缺失 X或Y时准备
@@ -673,6 +685,10 @@ public abstract class AWTMaker {
         if (stRefID == null) return null;
 
         CT_Font ctFont = resourceManage.getFont(stRefID.toString());
+        return getFont(ctFont);
+    }
+
+    private FontWrapper<TrueTypeFont> getFont(CT_Font ctFont) {
         if (ctFont == null) {
             return null;
         }
@@ -687,6 +703,19 @@ public abstract class AWTMaker {
         // 更新缓存 即便 trueTypeFont 也设置，不存在字体时(null)重复加载问题。
         fontCache.put(key, trueTypeFont);
         return trueTypeFont;
+    }
+
+    private GlyphFallbackResolver<TrueTypeFont> getGlyphFallbackResolver() {
+        if (glyphFallbackResolver == null) {
+            glyphFallbackResolver = new GlyphFallbackResolver<>(
+                    resourceManage.getFonts(),
+                    font -> {
+                        FontWrapper<TrueTypeFont> wrapper = getFont(font);
+                        return wrapper == null ? null : wrapper.getFont();
+                    },
+                    (font, codePoint) -> font.getUnicodeCmapLookup().getGlyphId(codePoint) != 0);
+        }
+        return glyphFallbackResolver;
     }
 
     private Matrix renderBoundaryAndSetClip(Graphics2D graphics, ST_Box boundary, Matrix parentMatrix) {
