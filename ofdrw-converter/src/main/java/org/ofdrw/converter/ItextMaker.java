@@ -55,6 +55,7 @@ import org.ofdrw.core.pageDescription.color.color.CT_RadialShd;
 import org.ofdrw.core.pageDescription.drawParam.CT_DrawParam;
 import org.ofdrw.core.signatures.appearance.StampAnnot;
 import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.reader.OFDReader;
 import org.ofdrw.reader.PageInfo;
 import org.ofdrw.reader.ResourceLocator;
@@ -67,6 +68,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -906,6 +908,10 @@ public class ItextMaker {
         PdfFont font = pdfFontWrapper.getFont();
 
         List<TextCodePoint> textCodePointList = PointUtil.calPdfTextCoordinate(box.getWidth(), box.getHeight(), textObject.getBoundary(), fontSize, textObject.getTextCodes(), textObject.getCGTransforms(), compositeObjectBoundary, compositeObjectCTM, textObject.getCTM() != null, textObject.getCTM(), true, scale);
+        for (TextCodePoint textCodePoint : textCodePointList) {
+            textCodePoint.setText(SymbolPuaMapper.forRendering(
+                    ctFont, textCodePoint.getText(), codePoint -> containsGlyph(font, codePoint)));
+        }
 
         // 创建矩形对象, 指定文字绘制区域
         ST_Box boundary = textObject.getBoundary();
@@ -1041,6 +1047,18 @@ public class ItextMaker {
                         - boundary.getHeight() - TEXT_CLIP_MARGIN),
                 (float) converterDpi(boundary.getWidth() + TEXT_CLIP_MARGIN * 2),
                 (float) converterDpi(boundary.getHeight() + TEXT_CLIP_MARGIN * 2));
+    }
+
+    private static boolean containsGlyph(PdfFont font, int codePoint) {
+        try {
+            return font.containsGlyph(codePoint);
+        } catch (UnsupportedCharsetException e) {
+            // SymbolTT cannot be queried through containsGlyph, but iText can
+            // still encode its private-use characters when writing the text.
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

@@ -31,6 +31,7 @@ import org.ofdrw.core.signatures.appearance.StampAnnot;
 import org.ofdrw.core.text.CT_CGTransform;
 import org.ofdrw.core.text.TextCode;
 import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.reader.OFDReader;
 import org.ofdrw.reader.PageInfo;
 import org.ofdrw.reader.ResourceManage;
@@ -471,6 +472,9 @@ public abstract class AWTMaker {
         graphics.setStroke(basicStroke);
 
         // 读取字体
+        CT_Font ctFont = textObject.getFont() == null
+                ? null
+                : resourceManage.getFont(textObject.getFont().toString());
         FontWrapper<TrueTypeFont> fontWrapper = getFont(textObject);
         TrueTypeFont typeFont = fontWrapper.getFont();
         List<Number> fontMatrix = null;
@@ -503,6 +507,9 @@ public abstract class AWTMaker {
         for (TextCode textCode : textObject.getTextCodes()) {
             // 移除内容中包含的换行符
             String content = StringUtils.removeNewline(textCode.getContent());
+            final TrueTypeFont renderingFont = typeFont;
+            content = SymbolPuaMapper.forRendering(ctFont, content,
+                    codePoint -> containsGlyph(renderingFont, codePoint));
             // 该TextCode 字符编码数量
             int len = content.length();
             // 当前正在处理的字符编码 在 该字符编码中的偏移量
@@ -716,6 +723,14 @@ public abstract class AWTMaker {
                     (font, codePoint) -> font.getUnicodeCmapLookup().getGlyphId(codePoint) != 0);
         }
         return glyphFallbackResolver;
+    }
+
+    private boolean containsGlyph(TrueTypeFont font, int codePoint) {
+        try {
+            return font.getUnicodeCmapLookup().getGlyphId(codePoint) != 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private Matrix renderBoundaryAndSetClip(Graphics2D graphics, ST_Box boundary, Matrix parentMatrix) {

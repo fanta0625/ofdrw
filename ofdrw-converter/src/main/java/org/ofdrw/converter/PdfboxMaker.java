@@ -58,6 +58,7 @@ import org.ofdrw.core.pageDescription.color.color.ColorClusterType;
 import org.ofdrw.core.pageDescription.drawParam.CT_DrawParam;
 import org.ofdrw.core.signatures.appearance.StampAnnot;
 import org.ofdrw.core.text.font.CT_Font;
+import org.ofdrw.core.text.font.SymbolPuaMapper;
 import org.ofdrw.reader.OFDReader;
 import org.ofdrw.reader.PageInfo;
 import org.ofdrw.reader.ResourceLocator;
@@ -852,15 +853,17 @@ public class PdfboxMaker {
 
         List<TextCodePoint> textCodePointList = PointUtil.calPdfTextCoordinate(box.getWidth(), box.getHeight(), textObject.getBoundary(), fontSize, textObject.getTextCodes(), textObject.getCTM() != null, textObject.getCTM(), true, scale);
         for (TextCodePoint textCodePoint : textCodePointList) {
+            String renderingText = SymbolPuaMapper.forRendering(
+                    ctFont, textCodePoint.getText(), codePoint -> containsGlyph(font, codePoint));
             PDFont renderingFont = getGlyphFallbackResolver()
-                    .resolve(textCodePoint.getText(), font);
+                    .resolve(renderingText, font);
             contentStream.saveGraphicsState();
             contentStream.beginText();
             contentStream.setNonStrokingColor(fillColor);
             contentStream.setTextMatrix(textMatrix(textObject, textCodePoint));
             contentStream.setFont(renderingFont, (float) converterDpi(fontSize));
             try {
-                contentStream.showText(textCodePoint.getText());
+                contentStream.showText(renderingText);
             } catch (Exception e) {
 
             }
@@ -868,6 +871,14 @@ public class PdfboxMaker {
             contentStream.restoreGraphicsState();
         }
 
+    }
+
+    private static boolean containsGlyph(PDFont font, int codePoint) {
+        try {
+            return font.encode(new String(Character.toChars(codePoint))).length > 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static Matrix textMatrix(TextObject textObject, TextCodePoint textCodePoint) {
