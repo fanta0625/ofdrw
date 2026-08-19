@@ -60,6 +60,85 @@ class PointUtilTest {
     }
 
     @Test
+    void ctmTranslationShouldOnlyApplyToTextOriginInCgTransformOverload() {
+        TextCode code = new TextCode()
+                .setContent("AB")
+                .setCoordinate(1d, 2d)
+                .setDeltaX(4d)
+                .setDeltaY(5d);
+
+        ST_Array ctm = new ST_Array(
+                2, 0,
+                0, 3,
+                100, 200
+        );
+        ST_Box boundary = new ST_Box(10, 20, 200, 300);
+
+        List<TextCodePoint> expected = PointUtil.calPdfTextCoordinate(
+                1000,
+                1000,
+                boundary,
+                1f,
+                Collections.singletonList(code),
+                true,
+                ctm,
+                true,
+                1d
+        );
+        List<TextCodePoint> actual = PointUtil.calPdfTextCoordinate(
+                1000,
+                1000,
+                boundary,
+                1f,
+                Collections.singletonList(code),
+                Collections.emptyList(),
+                null,
+                null,
+                true,
+                ctm,
+                true
+        );
+
+        assertEquals(expected.size(), actual.size());
+        for (int i = 0; i < expected.size(); i++) {
+            assertEquals(expected.get(i).getX(), actual.get(i).getX(), EPSILON);
+            assertEquals(expected.get(i).getY(), actual.get(i).getY(), EPSILON);
+        }
+    }
+
+    @Test
+    void verticalTextStepShouldExcludeCtmTranslation() {
+        TextCode code = new TextCode()
+                .setContent("下载次数：1")
+                .setCoordinate(1.50d, 0d)
+                .setDeltaX(new ST_Array(3.18d, 3.18d, 3.18d, 3.18d, 3.18d));
+
+        ST_Array ctm = new ST_Array(
+                0, 1,
+                -1, 0,
+                0.50, -2
+        );
+        List<TextCodePoint> points = PointUtil.calPdfTextCoordinate(
+                100,
+                100,
+                new ST_Box(0, 0, 20, 20),
+                3.175f,
+                Collections.singletonList(code),
+                Collections.emptyList(),
+                null,
+                null,
+                true,
+                ctm,
+                true
+        );
+
+        assertEquals(6, points.size());
+        assertEquals(converterDpi(3.18d),
+                Math.abs(points.get(1).getX() - points.get(0).getX()),
+                EPSILON);
+    }
+
+    @Test
     void legacyFoxitPathUsesAbsolute300DpiCoordinates() {
         ST_Box boundary = new ST_Box(38.438663, 146.473328, 2.963333, 0.423333);
         ST_Array ctm = new ST_Array(0.010948, 0, 0, 0.010925, -6.688669, -5.418684);
