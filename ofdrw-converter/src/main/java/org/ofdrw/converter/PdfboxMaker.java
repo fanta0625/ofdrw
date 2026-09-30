@@ -970,6 +970,88 @@ public class PdfboxMaker {
         pdf.getDocumentCatalog().setNames(names);
     }
 
+    private static boolean isCjkFontRequest(CT_Font ctFont) {
+        if (ctFont == null) {
+            return false;
+        }
+        String text = (ctFont.getFamilyName() == null ? "" : ctFont.getFamilyName())
+                + " " + (ctFont.getFontName() == null ? "" : ctFont.getFontName());
+        String lower = text.toLowerCase(Locale.ROOT);
+        return text.matches(".*[\\u2e80-\\u9fff].*")
+                || lower.contains("cjk") || lower.contains("chinese") || lower.contains("noto sans")
+                || lower.contains("source han") || lower.contains("song") || lower.contains("hei")
+                || lower.contains("kai") || lower.contains("fang") || lower.contains("yahei");
+    }
+
+    private static boolean isCjkFace(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("cjk") || lower.matches(".*(?:^|[\\s_-])(sc|cn|chs|gb)(?:$|[\\s_-]).*")
+                || name.matches(".*[\\u2e80-\\u9fff].*");
+    }
+
+    private static int scoreTtcFace(TrueTypeFont font, CT_Font ctFont, String alias) throws IOException {
+        String requestedFamily = ctFont == null ? null : ctFont.getFamilyName();
+        String requestedName = ctFont == null ? null : ctFont.getFontName();
+        String psName = font.getName();
+        String familyName = font.getNaming() == null ? null : font.getNaming().getFontFamily();
+        String fullName = font.getNaming() == null ? null : font.getNaming().getName(3, 1, 0x0409, 4);
+        String[] requested = {requestedName, requestedFamily, alias};
+        String[] candidate = {psName, familyName, fullName};
+        int score = 0;
+        for (String request : requested) {
+            if (request == null || request.isEmpty()) {
+                continue;
+            }
+            for (String name : candidate) {
+                if (name == null) {
+                    continue;
+                }
+                if (name.equalsIgnoreCase(request)) {
+                    score = Math.max(score, 1000);
+                } else if (name.toLowerCase(Locale.ROOT).contains(request.toLowerCase(Locale.ROOT))
+                        || request.toLowerCase(Locale.ROOT).contains(name.toLowerCase(Locale.ROOT))) {
+                    score = Math.max(score, 500);
+                }
+            }
+        }
+        if (isCjkFontRequest(ctFont)) {
+            if (isCjkFace(psName) || isCjkFace(familyName) || isCjkFace(fullName)) {
+                score += 200;
+            }
+            try {
+                if (font.getUnicodeCmapLookup().getGlyphId('中') != 0) {
+                    score += 100;
+                }
+            } catch (Exception ignored) {
+                // A malformed cmap is handled by the normal fallback path.
+            }
+        }
+        return score;
+    }
+
+    private TrueTypeFont selectTtcFace(TrueTypeCollection ttc, CT_Font ctFont) throws IOException {
+        String alias = ctFont == null ? null : FontLoader.getInstance().getFontAlias(ctFont);
+        final TrueTypeFont[] selected = new TrueTypeFont[1];
+        final int[] selectedScore = {Integer.MIN_VALUE};
+        ttc.processAllFonts(font -> {
+            int score = scoreTtcFace(font, ctFont, alias);
+            if (selected[0] == null || score > selectedScore[0]) {
+                selected[0] = font;
+                selectedScore[0] = score;
+            }
+        });
+        if (selected[0] != null && FontLoader.DEBUG) {
+            logger.debug("TTC字体选择结果: 原始字体={}/{}, alias={}, PDF字体={}, score={}",
+                    ctFont == null ? null : ctFont.getFamilyName(),
+                    ctFont == null ? null : ctFont.getFontName(), alias,
+                    selected[0].getName(), selectedScore[0]);
+        }
+        return selected[0];
+    }
+
     /**
      * 通过字体信息获取字体对象
      * @param ctFont
@@ -997,16 +1079,10 @@ public class PdfboxMaker {
             }
 
         } else if (name.endsWith(".ttc")) {
+            // PDFBox needs the collection data until PDDocument.save() subsets the font.
+            // This collection uses an in-memory stream, so it must not be closed here.
             TrueTypeCollection ttc = new TrueTypeCollection(fontStream);
-            if (ttc != null) {
-                ttf = ttc.getFontByName(ctFont.getFontName());
-                if (ttf == null) {
-                    String alias = FontLoader.getInstance().getFontAlias(ctFont);
-                    ttf = ttc.getFontByName(alias);
-                }
-                embedSubset = true;
-                ttc.close();
-            }
+            return selectTtcFace(ttc, ctFont);
         } else {
             fontStream.close();
         }

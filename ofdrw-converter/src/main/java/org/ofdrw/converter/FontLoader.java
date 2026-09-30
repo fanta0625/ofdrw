@@ -103,13 +103,56 @@ public final class FontLoader {
             return false;
         }
         String text = (psName != null ? psName : "") + " " + (fontFamily != null ? fontFamily : "");
-        text = text.toLowerCase();
+        text = text.toLowerCase(Locale.ROOT);
         for (String indicator : chineseIndicators) {
-            if (text.contains(indicator.toLowerCase())) {
+            String marker = indicator.toLowerCase(Locale.ROOT);
+            if (marker.length() > 2 && text.contains(marker)) {
+                return true;
+            }
+            if (text.matches(".*(?:^|[\\s_-])" + marker + "(?:$|[\\s_-]).*")) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isCjkRequest(String familyName, String fontName) {
+        String text = (familyName == null ? "" : familyName) + " " + (fontName == null ? "" : fontName);
+        String lower = text.toLowerCase(Locale.ROOT);
+        return text.matches(".*[\\u2e80-\\u9fff].*")
+                || lower.matches(".*(cjk|chinese|song|hei|kai|fang|yahei).*")
+                || lower.matches(".*(?:^|[\\s_-])(sc|cn|chs|gb)(?:$|[\\s_-]).*");
+    }
+
+    private static int scoreTtcFont(TrueTypeFont font, String familyName, String fontName, boolean cjkRequest) {
+        String psName = font.psName == null ? "" : font.psName.toLowerCase(Locale.ROOT);
+        String fontFamily = font.fontFamily == null ? "" : font.fontFamily.toLowerCase(Locale.ROOT);
+        String normalizedPs = psName.replaceAll("[\\s_-]+", "");
+        String normalizedFamily = fontFamily.replaceAll("[\\s_-]+", "");
+        String normalizedName = fontName == null ? "" : fontName.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+", "");
+        String normalizedRequestFamily = familyName == null ? "" : familyName.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+", "");
+        int score = 0;
+        if (!normalizedName.isEmpty() && (normalizedPs.equals(normalizedName) || normalizedFamily.equals(normalizedName))) {
+            score = 1000;
+        } else if (!normalizedRequestFamily.isEmpty() && normalizedFamily.equals(normalizedRequestFamily)) {
+            score = 800;
+        } else if (!normalizedName.isEmpty() && normalizedPs.contains(normalizedName)) {
+            score = 400;
+        }
+        if (cjkRequest && isChineseVariant(font.psName, font.fontFamily,
+                new String[]{"SC", "CN", "CHS", "GB", "CJK", "中文", "简体"})) {
+            score += 200;
+        }
+        if (cjkRequest) {
+            try {
+                if (font.getUnicodeCmapLookup().getGlyphId('中') != 0) {
+                    score += 100;
+                }
+            } catch (Exception ignored) {
+                // A malformed cmap is handled by the normal fallback path.
+            }
+        }
+        return score;
     }
 
 
@@ -523,60 +566,26 @@ public final class FontLoader {
                 case ".ttc":
                     TrueTypeCollection ttc = new TrueTypeCollection().parse(raf);
                     TrueTypeFont selectedFont = null;
+                    int selectedScore = Integer.MIN_VALUE;
+                    boolean cjkRequest = isCjkRequest(familyName, fontName);
 
-                    // 中文字体标识，用于优先选择中文变体
-                    String[] chineseIndicators = {"SC","TC","HK","TW","JP","KR","CJK"};
-
-                    boolean hasExactMatch = false;
-
-                    // 单次遍历完成所有匹配逻辑
                     for (int i = 0; i < ttc.getNumFonts(); i++) {
                         TrueTypeFont font = ttc.getFontAtIndex(i);
-                        String psName = font.psName;
-
-                        // 1. 精确匹配 PS Name（最高优先级）
-                        if (fontName != null && psName != null && psName.equals(fontName)) {
+                        int score = scoreTtcFont(font, familyName, fontName, cjkRequest);
+                        if (selectedFont == null || score > selectedScore) {
                             selectedFont = font;
-                            hasExactMatch = true;
-                            break;
-                        }
-
-                        // 2. 如果还没有选中，评估字体优先级
-                        if (selectedFont == null) {
-                            // 第一次遍历，先选择第一个字体作为后备
-                            selectedFont = font;
-                        } else {
-                            // 比较优先级：检查是否为中文变体
-                            boolean currentIsChinese = isChineseVariant(selectedFont.psName, selectedFont.fontFamily, chineseIndicators);
-                            boolean candidateIsChinese = isChineseVariant(psName, font.fontFamily, chineseIndicators);
-
-                            // 优先选择中文变体
-                            if (!currentIsChinese && candidateIsChinese) {
-                                selectedFont = font;
-                            }
-                            // 如果两者都是或都不是中文变体，保持原选择（即第一个遇到的）
-                        }
-                    }
-
-                    // 只有在没有精确匹配时，才尝试部分匹配
-                    if (!hasExactMatch && fontName != null && selectedFont != null) {
-                        for (int i = 0; i < ttc.getNumFonts(); i++) {
-                            TrueTypeFont font = ttc.getFontAtIndex(i);
-                            String psName = font.psName;
-                            if (psName != null && psName.contains(fontName)) {
-                                selectedFont = font;
-                                break;
-                            }
+                            selectedScore = score;
                         }
                     }
 
                     if (DEBUG) {
-                        log.debug("TTC字体选择结果: 文件={}, 字体名={}, 字族名={}, 选中字体PSName={}, 字体族={}",
+                        log.debug("TTC字体选择结果: 文件={}, 字体名={}, 字族名={}, 选中字体PSName={}, 字体族={}, score={}",
                                 absPath,
                                 fontName != null ? fontName : "null",
                                 familyName != null ? familyName : "null",
                                 selectedFont != null ? selectedFont.psName : "null",
-                                selectedFont != null ? selectedFont.fontFamily : "null");
+                                selectedFont != null ? selectedFont.fontFamily : "null",
+                                selectedScore);
                     }
                     return selectedFont;
             }
